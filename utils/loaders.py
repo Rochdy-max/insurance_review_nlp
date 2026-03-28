@@ -33,3 +33,7 @@ def load_subject_model():
     model = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2")
     label_embs = model.encode(labels)
     return model, label_embs, labels
+
+@st.cache_resource
+def load_data_emeddings():
+    return pd.read_pickle("data/text_embeddings.pkl")

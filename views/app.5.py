@@ -16,8 +16,8 @@
 import streamlit as st
 from utils.loaders import *
 from utils.preprocessing import clean_text
-from utils.prediction import predict_all, search_review
-from utils.subject import predict_subject
+from utils.prediction import predict_all
+from utils.subject import predict_subject, evaluate_similarity
 from utils.rag import run_rag
 
 import plotly.graph_objects as go
@@ -57,7 +57,7 @@ with tab1:
             clean, sa_model, distil_pipe, task="sentiment"
         )
 
-        subject_scores = predict_subject(clean, subject_model, label_embs, labels)
+        subject_scores = evaluate_similarity(clean, subject_model, label_embs, labels)
 
         col1, col2 = st.columns(2)
 
@@ -78,24 +78,6 @@ with tab1:
 # ==============================
 # TAB 2 - Analysis
 # ==============================
-# with tab2:
-#     insurer = st.selectbox("Filter by insurer", ["All"] + list(df['assureur'].unique()))
-
-#     filtered_df = df if insurer == "All" else df[df['assureur'] == insurer]
-
-#     st.subheader("Metrics")
-#     st.write(filtered_df.groupby('assureur')['note'].mean())
-
-#     st.subheader("Search")
-#     query = st.text_input("Search reviews")
-#     if query:
-#         idxs, scores = search_review(query, data_embeddings[filtered_df.index])
-#         results_idxs = idxs[scores >= 0.4]
-#         results = filtered_df.iloc[results_idxs]
-#         # results = filtered_df[filtered_df['text_cleaned'].str.contains(query, case=False)]
-#         st.dataframe(results.head(20))
-
-
 PLOTLY_LAYOUT = dict(
     template="plotly_dark",
     margin=dict(l=10, r=10, t=30, b=10),
@@ -115,10 +97,13 @@ with tab2:
     insurer = st.selectbox("Filter by insurer", ["All"] + list(df['assureur'].unique()))
     df = df if insurer == "All" else df[df['assureur'] == insurer]
 
+    st.subheader("Moyenne par Assureur")
+    st.write(df.groupby('assureur')['note'].mean())
+
     col_a, col_b = st.columns([1, 1], gap="large")
 
     with col_a:
-        st.markdown('<div class="section-title">Distribution des notes</div>', unsafe_allow_html=True)
+        st.subheader("Distribution des notes")
         if note_col in df.columns:
             note_counts = df[note_col].value_counts().sort_index()
             fig_notes = go.Figure(go.Bar(
@@ -134,7 +119,7 @@ with tab2:
             st.plotly_chart(fig_notes, width='stretch')
 
     with col_b:
-        st.markdown('<div class="section-title">Répartition des sentiments</div>', unsafe_allow_html=True)
+        st.subheader("Répartition des sentiments")
         if "sentiment" in df.columns:
             sent_counts = df["sentiment"].value_counts()
             fig_sent = go.Figure(go.Pie(
@@ -146,7 +131,7 @@ with tab2:
             fig_sent.update_layout(**PLOTLY_LAYOUT, height=320)
             st.plotly_chart(fig_sent, width='stretch')
 
-    st.markdown('<div class="section-title">Top 20 mots les plus fréquents</div>', unsafe_allow_html=True)
+    st.subheader("Top 20 mots les plus fréquents")
     if "text_cleaned" in df.columns:
         all_words = " ".join(df["text_cleaned"].astype(str)).split()
         word_freq = Counter(w for w in all_words if len(w) > 2)
@@ -168,7 +153,7 @@ with tab2:
         st.plotly_chart(fig_words, width='stretch')
 
     if "subject" in df.columns and df["subject"].nunique() > 1:
-        st.markdown('<div class="section-title">Détection de sujets</div>', unsafe_allow_html=True)
+        st.subheader("Détection de sujets")
         col_s1, col_s2 = st.columns([1, 1], gap="large")
 
         with col_s1:
@@ -200,7 +185,7 @@ with tab2:
                                             xaxis_title="Note moyenne")
                 st.plotly_chart(fig_subj_note, width='stretch')
 
-    st.markdown('<div class="section-title">Nuage de mots</div>', unsafe_allow_html=True)
+    st.subheader("Nuage de mots")
 
     col_wc1, col_wc2 = st.columns([2, 1])
 
@@ -238,6 +223,16 @@ with tab2:
 # TAB 3 - RAG
 # ==============================
 with tab3:
+    st.subheader("Search")
+    query = st.text_input("Search reviews")
+    if query:
+        embs = data_embeddings[df.index]
+        idx2scores = evaluate_similarity(query, subject_model, embs, range(len(embs)))
+        results_idxs = [idx for idx, score in idx2scores if score >= 0.4]
+        results = df.iloc[results_idxs]
+        st.dataframe(results.head(20))
+
+    st.subheader("Q/A")
     question = st.text_area("Ask a question")
     if st.button("Run"):
         try:

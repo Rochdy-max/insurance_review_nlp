@@ -7,7 +7,7 @@ import json
 def run_rag(question, df):
     url = "http://localhost:11434/api/generate"
 
-    prompt = f"Extract filters from: {question}. Return JSON only."
+    prompt = f"Extract dataframe filters from: {question}. Return JSON only."
 
     res = requests.post(url, json={"model": "gemma3", "prompt": prompt})
     raw = res.json()['response']
