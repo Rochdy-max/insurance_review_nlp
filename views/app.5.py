@@ -7,7 +7,7 @@
 #   ├── loaders.py
 #   ├── preprocessing.py
 #   ├── prediction.py
-#   ├── subject.py
+#   ├── similarity.py
 #   ├── rag.py
 
 # ==============================
@@ -17,7 +17,7 @@ import streamlit as st
 from utils.loaders import *
 from utils.preprocessing import clean_text
 from utils.prediction import predict_all
-from utils.subject import predict_subject, evaluate_similarity
+from utils.similarity import evaluate_similarity
 from utils.rag import run_rag
 
 import plotly.graph_objects as go
