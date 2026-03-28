@@ -16,9 +16,13 @@
 import streamlit as st
 from utils.loaders import *
 from utils.preprocessing import clean_text
-from utils.prediction import predict_all
+from utils.prediction import predict_all, search_review
 from utils.subject import predict_subject
 from utils.rag import run_rag
+
+import plotly.graph_objects as go
+from collections import Counter
+import matplotlib.pyplot as plt
 
 st.set_page_config(page_title="Insurance NLP App", layout="wide")
 
@@ -30,6 +34,7 @@ with st.spinner("Loading models..."):
     bert_pipe = load_bert_pipeline()
     distil_pipe = load_distilbert_pipeline()
     subject_model, label_embs, labels = load_subject_model()
+    data_embeddings = load_data_emeddings()
 
 st.success("Models loaded")
 
@@ -73,19 +78,161 @@ with tab1:
 # ==============================
 # TAB 2 - Analysis
 # ==============================
+# with tab2:
+#     insurer = st.selectbox("Filter by insurer", ["All"] + list(df['assureur'].unique()))
+
+#     filtered_df = df if insurer == "All" else df[df['assureur'] == insurer]
+
+#     st.subheader("Metrics")
+#     st.write(filtered_df.groupby('assureur')['note'].mean())
+
+#     st.subheader("Search")
+#     query = st.text_input("Search reviews")
+#     if query:
+#         idxs, scores = search_review(query, data_embeddings[filtered_df.index])
+#         results_idxs = idxs[scores >= 0.4]
+#         results = filtered_df.iloc[results_idxs]
+#         # results = filtered_df[filtered_df['text_cleaned'].str.contains(query, case=False)]
+#         st.dataframe(results.head(20))
+
+
+PLOTLY_LAYOUT = dict(
+    template="plotly_dark",
+    margin=dict(l=10, r=10, t=30, b=10),
+)
+
+PALETTE_SENT = {
+    "Positif": "#48c78e",
+    "Neutre": "#ffbd59",
+    "Négatif": "#ff6b6b",
+}
+
+PALETTE_BLUE = ["#1a3a5c", "#244e7c", "#2f629c", "#3b82f6", "#63b3ed"]
+
 with tab2:
+    note_col = "note"
+
     insurer = st.selectbox("Filter by insurer", ["All"] + list(df['assureur'].unique()))
+    df = df if insurer == "All" else df[df['assureur'] == insurer]
 
-    filtered_df = df if insurer == "All" else df[df['assureur'] == insurer]
+    col_a, col_b = st.columns([1, 1], gap="large")
 
-    st.subheader("Metrics")
-    st.write(filtered_df.groupby('assureur')['note'].mean())
+    with col_a:
+        st.markdown('<div class="section-title">Distribution des notes</div>', unsafe_allow_html=True)
+        if note_col in df.columns:
+            note_counts = df[note_col].value_counts().sort_index()
+            fig_notes = go.Figure(go.Bar(
+                x=[str(int(n)) for n in note_counts.index],
+                y=note_counts.values,
+                marker=dict(color=note_counts.values,
+                            colorscale=[[0, "#1a3a5c"], [1, "#63b3ed"]]),
+                text=note_counts.values,
+                textposition="outside",
+            ))
+            fig_notes.update_layout(**PLOTLY_LAYOUT, height=320,
+                                    xaxis_title="Note (1 à 5)", yaxis_title="Nombre d'avis")
+            st.plotly_chart(fig_notes, width='stretch')
 
-    st.subheader("Search")
-    query = st.text_input("Search reviews")
-    if query:
-        results = filtered_df[filtered_df['text_cleaned'].str.contains(query, case=False)]
-        st.dataframe(results.head(20))
+    with col_b:
+        st.markdown('<div class="section-title">Répartition des sentiments</div>', unsafe_allow_html=True)
+        if "sentiment" in df.columns:
+            sent_counts = df["sentiment"].value_counts()
+            fig_sent = go.Figure(go.Pie(
+                labels=sent_counts.index.tolist(),
+                values=sent_counts.values.tolist(),
+                hole=0.55,
+                marker=dict(colors=[PALETTE_SENT.get(s, "#888") for s in sent_counts.index]),
+            ))
+            fig_sent.update_layout(**PLOTLY_LAYOUT, height=320)
+            st.plotly_chart(fig_sent, width='stretch')
+
+    st.markdown('<div class="section-title">Top 20 mots les plus fréquents</div>', unsafe_allow_html=True)
+    if "text_cleaned" in df.columns:
+        all_words = " ".join(df["text_cleaned"].astype(str)).split()
+        word_freq = Counter(w for w in all_words if len(w) > 2)
+        common = word_freq.most_common(20)
+        words_list = [w for w, _ in common]
+        counts_list = [c for _, c in common]
+
+        fig_words = go.Figure(go.Bar(
+            x=counts_list[::-1],
+            y=words_list[::-1],
+            orientation="h",
+            marker=dict(color=counts_list[::-1],
+                        colorscale=[[0, "#1a3a5c"], [1, "#63b3ed"]]),
+            text=counts_list[::-1],
+            textposition="outside",
+        ))
+        fig_words.update_layout(**PLOTLY_LAYOUT, height=480,
+                                xaxis_title="Fréquence")
+        st.plotly_chart(fig_words, width='stretch')
+
+    if "subject" in df.columns and df["subject"].nunique() > 1:
+        st.markdown('<div class="section-title">Détection de sujets</div>', unsafe_allow_html=True)
+        col_s1, col_s2 = st.columns([1, 1], gap="large")
+
+        with col_s1:
+            subj_counts = df["subject"].value_counts()
+            fig_subj = go.Figure(go.Bar(
+                x=subj_counts.index.tolist(),
+                y=subj_counts.values.tolist(),
+                marker=dict(color=PALETTE_BLUE[:len(subj_counts)]),
+                text=subj_counts.values.tolist(),
+                textposition="outside",
+            ))
+            fig_subj.update_layout(**PLOTLY_LAYOUT, height=320,
+                                   xaxis_title="Catégorie", yaxis_title="Nombre d'avis")
+            st.plotly_chart(fig_subj, width='stretch')
+
+        with col_s2:
+            if note_col in df.columns:
+                subj_note = df.groupby("subject")[note_col].mean().sort_values()
+                fig_subj_note = go.Figure(go.Bar(
+                    x=subj_note.values,
+                    y=subj_note.index.tolist(),
+                    orientation="h",
+                    marker=dict(color=subj_note.values,
+                                colorscale=[[0, "#ff6b6b"], [1, "#48c78e"]]),
+                    text=[f"{v:.2f}" for v in subj_note.values],
+                    textposition="outside",
+                ))
+                fig_subj_note.update_layout(**PLOTLY_LAYOUT, height=320,
+                                            xaxis_title="Note moyenne")
+                st.plotly_chart(fig_subj_note, width='stretch')
+
+    st.markdown('<div class="section-title">Nuage de mots</div>', unsafe_allow_html=True)
+
+    col_wc1, col_wc2 = st.columns([2, 1])
+
+    with col_wc2:
+        colormap_choice = st.selectbox("Palette", ["plasma", "viridis", "magma", "cool", "Blues"])
+        max_words_wc = st.slider("Nombre de mots max", 30, 200, 100)
+        filter_sentiment_wc = st.selectbox("Filtrer par sentiment",
+                                           ["Tous", "Positif", "Neutre", "Négatif"])
+
+    with col_wc1:
+        try:
+            from wordcloud import WordCloud
+            subset = df
+            if filter_sentiment_wc != "Tous" and "sentiment" in df.columns:
+                subset = df[df["sentiment"] == filter_sentiment_wc]
+
+            full_text = " ".join(subset["text_cleaned"].astype(str))
+
+            if len(full_text.strip()) > 10:
+                wc = WordCloud(width=900, height=420,
+                               background_color=None,
+                               mode="RGBA",
+                               colormap=colormap_choice,
+                               max_words=max_words_wc).generate(full_text)
+
+                fig_wc, ax_wc = plt.subplots(figsize=(9, 4.2))
+                ax_wc.imshow(wc)
+                ax_wc.axis("off")
+                st.pyplot(fig_wc)
+
+        except ImportError:
+            st.warning("Installe wordcloud : pip install wordcloud")
 
 # ==============================
 # TAB 3 - RAG
