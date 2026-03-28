@@ -95,17 +95,17 @@ with tab2:
     note_col = "note"
 
     insurer = st.selectbox("Filter by insurer", ["All"] + list(df['assureur'].unique()))
-    df = df if insurer == "All" else df[df['assureur'] == insurer]
+    filtered_df = df if insurer == "All" else df[df['assureur'] == insurer]
 
     st.subheader("Moyenne par Assureur")
-    st.write(df.groupby('assureur')['note'].mean())
+    st.write(filtered_df.groupby('assureur')['note'].mean())
 
     col_a, col_b = st.columns([1, 1], gap="large")
 
     with col_a:
         st.subheader("Distribution des notes")
-        if note_col in df.columns:
-            note_counts = df[note_col].value_counts().sort_index()
+        if note_col in filtered_df.columns:
+            note_counts = filtered_df[note_col].value_counts().sort_index()
             fig_notes = go.Figure(go.Bar(
                 x=[str(int(n)) for n in note_counts.index],
                 y=note_counts.values,
@@ -120,8 +120,8 @@ with tab2:
 
     with col_b:
         st.subheader("Répartition des sentiments")
-        if "sentiment" in df.columns:
-            sent_counts = df["sentiment"].value_counts()
+        if "sentiment" in filtered_df.columns:
+            sent_counts = filtered_df["sentiment"].value_counts()
             fig_sent = go.Figure(go.Pie(
                 labels=sent_counts.index.tolist(),
                 values=sent_counts.values.tolist(),
@@ -132,8 +132,8 @@ with tab2:
             st.plotly_chart(fig_sent, width='stretch')
 
     st.subheader("Top 20 mots les plus fréquents")
-    if "text_cleaned" in df.columns:
-        all_words = " ".join(df["text_cleaned"].astype(str)).split()
+    if "text_cleaned" in filtered_df.columns:
+        all_words = " ".join(filtered_df["text_cleaned"].astype(str)).split()
         word_freq = Counter(w for w in all_words if len(w) > 2)
         common = word_freq.most_common(20)
         words_list = [w for w, _ in common]
@@ -152,12 +152,12 @@ with tab2:
                                 xaxis_title="Fréquence")
         st.plotly_chart(fig_words, width='stretch')
 
-    if "subject" in df.columns and df["subject"].nunique() > 1:
+    if "subject" in filtered_df.columns and filtered_df["subject"].nunique() > 1:
         st.subheader("Détection de sujets")
         col_s1, col_s2 = st.columns([1, 1], gap="large")
 
         with col_s1:
-            subj_counts = df["subject"].value_counts()
+            subj_counts = filtered_df["subject"].value_counts()
             fig_subj = go.Figure(go.Bar(
                 x=subj_counts.index.tolist(),
                 y=subj_counts.values.tolist(),
@@ -170,8 +170,8 @@ with tab2:
             st.plotly_chart(fig_subj, width='stretch')
 
         with col_s2:
-            if note_col in df.columns:
-                subj_note = df.groupby("subject")[note_col].mean().sort_values()
+            if note_col in filtered_df.columns:
+                subj_note = filtered_df.groupby("subject")[note_col].mean().sort_values()
                 fig_subj_note = go.Figure(go.Bar(
                     x=subj_note.values,
                     y=subj_note.index.tolist(),
@@ -198,9 +198,9 @@ with tab2:
     with col_wc1:
         try:
             from wordcloud import WordCloud
-            subset = df
-            if filter_sentiment_wc != "Tous" and "sentiment" in df.columns:
-                subset = df[df["sentiment"] == filter_sentiment_wc]
+            subset = filtered_df
+            if filter_sentiment_wc != "Tous" and "sentiment" in filtered_df.columns:
+                subset = filtered_df[filtered_df["sentiment"] == filter_sentiment_wc]
 
             full_text = " ".join(subset["text_cleaned"].astype(str))
 
@@ -226,17 +226,22 @@ with tab3:
     st.subheader("Search")
     query = st.text_input("Search reviews")
     if query:
-        embs = data_embeddings[df.index]
+        embs = data_embeddings[filtered_df.index]
         idx2scores = evaluate_similarity(query, subject_model, embs, range(len(embs)))
         results_idxs = [idx for idx, score in idx2scores if score >= 0.4]
-        results = df.iloc[results_idxs]
-        st.dataframe(results.head(20))
+        results_df = filtered_df.iloc[results_idxs]
+        cols_to_show = [
+            c
+            for c in ["text_cleaned", "note", "sentiment", "subject"]
+            if c in results_df.columns
+        ]
+        st.dataframe(results_df.head(20).loc[:,cols_to_show])
 
     st.subheader("Q/A")
     question = st.text_area("Ask a question")
     if st.button("Run"):
         try:
-            answer = run_rag(question, df)
+            answer = run_rag(question, filtered_df)
             st.write(answer)
         except Exception as e:
             st.error("Ollama not running")
